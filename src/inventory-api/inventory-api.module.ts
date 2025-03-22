@@ -4,6 +4,6 @@ import { InventoryApiController } from './inventory-api.controller';
 
 @Module({
   providers: [InventoryApiService],
-  controllers: [InventoryApiController]
+  controllers: [InventoryApiController],
 })
 export class InventoryApiModule {}
