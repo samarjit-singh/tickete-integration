@@ -36,6 +36,10 @@ export class ApiIntegrationService {
   private readonly baseApiUrl = 'https://leap-api.tickete.co/api/v1/inventory';
   private readonly productIds = [14, 15];
 
+  private requestQueue: (() => Promise<void>)[] = [];
+  private processingQueue = false;
+  private readonly requestInterval = 2000;
+
   constructor(
     private readonly configService: ConfigService,
     private readonly prisma: PrismaService,
@@ -60,26 +64,54 @@ export class ApiIntegrationService {
     }
   }
 
+  private async processQueue() {
+    if (this.processingQueue) return;
+    this.processingQueue = true;
+
+    while (this.requestQueue.length > 0) {
+      const request = this.requestQueue.shift();
+      if (request) {
+        await request();
+        await new Promise((resolve) =>
+          setTimeout(resolve, this.requestInterval),
+        );
+      }
+    }
+
+    this.processingQueue = false;
+  }
+
+  private enqueueRequest(requestFn: () => Promise<void>) {
+    this.requestQueue.push(requestFn);
+    this.processQueue();
+  }
+
   async fetchInventoryForProduct(
     productId: number,
     date: string,
   ): Promise<any> {
-    try {
-      const response = await axios.get(
-        `${this.baseApiUrl}/${productId}?date=${date}`,
-        {
-          headers: {
-            'x-api-key': this.apiKey,
-          },
-        },
-      );
-      return response.data;
-    } catch (error) {
-      this.logger.error(
-        `Error fetching inventory for product ${productId} on date ${date}: ${error}`,
-      );
-      throw error;
-    }
+    return new Promise((resolve, reject) => {
+      const requestFn = async () => {
+        try {
+          const response = await axios.get(
+            `${this.baseApiUrl}/${productId}?date=${date}`,
+            {
+              headers: {
+                'x-api-key': this.apiKey,
+              },
+            },
+          );
+          resolve(response.data);
+        } catch (error) {
+          this.logger.error(
+            `Error fetching inventory for product ${productId} on date ${date}: ${error}`,
+          );
+          reject(new Error(`Failed to fetch inventory: ${error}`));
+        }
+      };
+
+      this.enqueueRequest(requestFn);
+    });
   }
 
   async saveInventoryData(
